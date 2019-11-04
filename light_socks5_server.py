@@ -169,7 +169,7 @@ class Server:
             c = Connection(reader, writer)
             async with c:
                 await c.handle()
-        except ConnectionError or asyncio.IncompleteReadError:
+        except (ConnectionError, asyncio.streams.IncompleteReadError):
             pass
 
     async def run(self):
