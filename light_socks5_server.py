@@ -43,20 +43,26 @@ class TcpClient:
 
     async def run(self):
         self.srcWriter.write(bytes([5, 0, 0]))
+        await self.srcWriter.drain()
         (localAddress, localPort) = self.dstWriter.get_extra_info(
             'sockname')
         localIpAddress = ipaddress.ip_address(localAddress)
         if isinstance(localIpAddress, ipaddress.IPv4Address):
             self.srcWriter.write(bytes([1]))
+            await self.srcWriter.drain()
             self.srcWriter.write(socket.inet_aton(localAddress))
+            await self.srcWriter.drain()
         elif isinstance(localIpAddress, ipaddress.IPv6Address):
             self.srcWriter.write(bytes([4]))
+            await self.srcWriter.drain()
             self.srcWriter.write(
                 socket.inet_pton(socket.AF_INET6, localAddress))
+            await self.srcWriter.drain()
         else:
             raise Exception(f'Can not support "{localAddress}" address.')
         self.srcWriter.write(
             localPort.to_bytes(length=2, byteorder='big', signed=False))
+        await self.srcWriter.drain()
 
         upTask = asyncio.create_task(
             TcpClient._transmit(self.srcReader, self.dstWriter))
@@ -72,13 +78,13 @@ class TcpClient:
             data = await reader.read(1024)
             while len(data) != 0:
                 writer.write(data)
+                await writer.drain()
                 data = await reader.read(1024)
         except ConnectionError:
             pass
 
     async def close(self):
         if self.dstWriter is not None:
-            await self.dstWriter.drain()
             self.dstWriter.close()
 
     async def __aenter__(self):
@@ -100,10 +106,6 @@ class Connection:
         await self._handleCommand()
 
     async def close(self):
-        try:
-            await self.writer.drain()
-        except ConnectionError:
-            pass
         self.writer.close()
 
     async def __aenter__(self):
@@ -119,6 +121,7 @@ class Connection:
         nmethods = await self.reader.readexactly(1)
         await self.reader.readexactly(nmethods[0])
         self.writer.write(bytes([5, 0]))
+        await self.writer.drain()
 
     async def _handleCommand(self):
         verCmdRsv = await self.reader.readexactly(3)
@@ -152,6 +155,7 @@ class Connection:
                 await client.connect()
             except:
                 self.writer.write(bytes([5, 1, 0, 1, 0, 0, 0, 0, 0, 0]))
+                await self.writer.drain()
             else:
                 await client.run()
 
