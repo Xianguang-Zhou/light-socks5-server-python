@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 # Copyright (C) 2019 Xianguang Zhou <xianguang.zhou@outlook.com>
@@ -80,7 +79,7 @@ class TcpClient:
                 writer.write(data)
                 await writer.drain()
                 data = await reader.read(1024)
-        except ConnectionError:
+        except (ConnectionError, TimeoutError):
             pass
 
     async def close(self):
@@ -92,109 +91,3 @@ class TcpClient:
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.close()
-
-
-class Connection:
-
-    def __init__(self, reader: asyncio.StreamReader,
-                 writer: asyncio.StreamWriter):
-        self.reader = reader
-        self.writer = writer
-
-    async def handle(self):
-        await self._handleHead()
-        await self._handleCommand()
-
-    async def close(self):
-        self.writer.close()
-
-    async def __aenter__(self):
-        pass
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await self.close()
-
-    async def _handleHead(self):
-        ver = await self.reader.readexactly(1)
-        if ver[0] != 5:
-            raise Exception('Socks protocol version is not 5.')
-        nmethods = await self.reader.readexactly(1)
-        await self.reader.readexactly(nmethods[0])
-        self.writer.write(bytes([5, 0]))
-        await self.writer.drain()
-
-    async def _handleCommand(self):
-        verCmdRsv = await self.reader.readexactly(3)
-        cmd = verCmdRsv[1]
-        if 1 == cmd:
-            await self._handleConnect()
-        else:
-            raise Exception(f'Can not support "CMD={cmd}".')
-
-    async def _handleConnect(self):
-        atyp = await self.reader.readexactly(1)
-        atyp = atyp[0]
-        if 1 == atyp:
-            address = await self.reader.readexactly(4)
-            host = socket.inet_ntoa(address)
-        elif 3 == atyp:
-            domainLength = await self.reader.readexactly(1)
-            domain = await self.reader.readexactly(domainLength[0])
-            host = domain.decode()
-        elif 4 == atyp:
-            address = await self.reader.readexactly(16)
-            host = socket.inet_ntop(socket.AF_INET6, address)
-        else:
-            raise Exception(f'Can not support "ATYP={atyp}".')
-        port = await self.reader.readexactly(2)
-        port = int.from_bytes(port, byteorder='big', signed=False)
-        client = TcpClient(host, port, self.reader,
-                           self.writer)
-        async with client:
-            try:
-                await client.connect()
-            except:
-                self.writer.write(bytes([5, 1, 0, 1, 0, 0, 0, 0, 0, 0]))
-                await self.writer.drain()
-            else:
-                await client.run()
-
-
-class Server:
-
-    def __init__(self, host='0.0.0.0', port=1080):
-        self.host = host
-        self.port = port
-
-    @staticmethod
-    async def _handleConnection(reader: asyncio.StreamReader,
-                                writer: asyncio.StreamWriter):
-        try:
-            c = Connection(reader, writer)
-            async with c:
-                await c.handle()
-        except (ConnectionError, asyncio.streams.IncompleteReadError):
-            pass
-
-    async def run(self):
-        server = await asyncio.start_server(Server._handleConnection, self.host,
-                                            self.port)
-        async with server:
-            print(f'Serving on "{self.host}:{self.port}".')
-            await server.serve_forever()
-
-
-async def amain():
-    s = Server()
-    await s.run()
-
-
-def main():
-    try:
-        asyncio.run(amain())
-    except KeyboardInterrupt:
-        pass
-
-
-if __name__ == '__main__':
-    main()
