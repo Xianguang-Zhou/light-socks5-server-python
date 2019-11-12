@@ -19,12 +19,14 @@ import asyncio
 import ipaddress
 import socket
 
+import stream
+
 __author__ = 'Xianguang Zhou <xianguang.zhou@outlook.com>'
 __copyright__ = 'Copyright (C) 2019 Xianguang Zhou <xianguang.zhou@outlook.com>'
 __license__ = 'AGPL-3.0'
 
 
-class TcpClient:
+class ConnectClient:
 
     def __init__(self, host: str, port: int, reader: asyncio.StreamReader,
                  writer: asyncio.StreamWriter):
@@ -43,8 +45,7 @@ class TcpClient:
     async def run(self):
         self.srcWriter.write(bytes([5, 0, 0]))
         await self.srcWriter.drain()
-        (localAddress, localPort) = self.dstWriter.get_extra_info(
-            'sockname')
+        localAddress, localPort = self.dstWriter.get_extra_info('sockname')
         localIpAddress = ipaddress.ip_address(localAddress)
         if isinstance(localIpAddress, ipaddress.IPv4Address):
             self.srcWriter.write(bytes([1]))
@@ -63,24 +64,8 @@ class TcpClient:
             localPort.to_bytes(length=2, byteorder='big', signed=False))
         await self.srcWriter.drain()
 
-        upTask = asyncio.create_task(
-            TcpClient._transmit(self.srcReader, self.dstWriter))
-        downTask = asyncio.create_task(
-            TcpClient._transmit(self.dstReader, self.srcWriter))
-        await asyncio.wait([upTask, downTask],
-                           return_when=asyncio.ALL_COMPLETED)
-
-    @staticmethod
-    async def _transmit(reader: asyncio.StreamReader,
-                        writer: asyncio.StreamWriter):
-        try:
-            data = await reader.read(1024)
-            while len(data) != 0:
-                writer.write(data)
-                await writer.drain()
-                data = await reader.read(1024)
-        except (ConnectionError, TimeoutError):
-            pass
+        await stream.relay(self.srcReader, self.srcWriter, self.dstReader,
+                           self.dstWriter)
 
     async def close(self):
         if self.dstWriter is not None:

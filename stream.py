@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 # Copyright (C) 2019 Xianguang Zhou <xianguang.zhou@outlook.com>
@@ -17,37 +16,28 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import asyncio
-
-from server import Server
+from asyncio import StreamReader, StreamWriter
 
 __author__ = 'Xianguang Zhou <xianguang.zhou@outlook.com>'
 __copyright__ = 'Copyright (C) 2019 Xianguang Zhou <xianguang.zhou@outlook.com>'
 __license__ = 'AGPL-3.0'
 
 
-async def amain():
-    s = Server()
-    await s.run()
+async def relay(srcReader: StreamReader, srcWriter: StreamWriter,
+                dstReader: StreamReader, dstWriter: StreamWriter):
+    upTask = asyncio.create_task(_transmit(srcReader, dstWriter))
+    upTask._log_destroy_pending = False
+    downTask = asyncio.create_task(_transmit(dstReader, srcWriter))
+    downTask._log_destroy_pending = False
+    await asyncio.wait([upTask, downTask], return_when=asyncio.ALL_COMPLETED)
 
 
-def newEventLoop() -> asyncio.AbstractEventLoop:
+async def _transmit(reader: StreamReader, writer: StreamWriter):
     try:
-        import uvloop
-        return uvloop.new_event_loop()
-    except:
-        return asyncio.new_event_loop()
-
-
-def main():
-    try:
-        loop = newEventLoop()
-        try:
-            loop.run_until_complete(amain())
-        finally:
-            loop.close()
-    except KeyboardInterrupt:
+        data = await reader.read(1024)
+        while len(data) != 0 and not writer.is_closing():
+            writer.write(data)
+            await writer.drain()
+            data = await reader.read(1024)
+    except (ConnectionError, TimeoutError):
         pass
-
-
-if __name__ == '__main__':
-    main()
